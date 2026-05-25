@@ -152,53 +152,81 @@ impl QueryPacket {
                 QueryPayload::Ping(token)
             }
             'i' => {
-                let passworded = cursor.read_u8()? != 0;
-                let players = cursor.read_u16::<LittleEndian>()?;
-                let max_players = cursor.read_u16::<LittleEndian>()?;
-                
-                let hostname = read_u32_str(&mut cursor)?;
-                let gamemode = read_u32_str(&mut cursor)?;
-                let language = read_u32_str(&mut cursor)?;
+                if is_response {
+                    let passworded = cursor.read_u8()? != 0;
+                    let players = cursor.read_u16::<LittleEndian>()?;
+                    let max_players = cursor.read_u16::<LittleEndian>()?;
+                    
+                    let hostname = read_u32_str(&mut cursor)?;
+                    let gamemode = read_u32_str(&mut cursor)?;
+                    let language = read_u32_str(&mut cursor)?;
 
-                QueryPayload::Info {
-                    passworded,
-                    players,
-                    max_players,
-                    hostname,
-                    gamemode,
-                    language,
+                    QueryPayload::Info {
+                        passworded,
+                        players,
+                        max_players,
+                        hostname,
+                        gamemode,
+                        language,
+                    }
+                } else {
+                    QueryPayload::Info {
+                        passworded: false,
+                        players: 0,
+                        max_players: 0,
+                        hostname: String::new(),
+                        gamemode: String::new(),
+                        language: String::new(),
+                    }
                 }
             }
             'c' => {
-                let count = cursor.read_u16::<LittleEndian>()?;
-                let mut players = Vec::with_capacity(count as usize);
-                for _ in 0..count {
-                    let name = read_u8_str(&mut cursor)?;
-                    let score = cursor.read_i32::<LittleEndian>()?;
-                    players.push(QueryPlayer { name, score });
+                if is_response {
+                    let count = cursor.read_u16::<LittleEndian>()?;
+                    let mut players = Vec::with_capacity(count as usize);
+                    for _ in 0..count {
+                        let name = read_u8_str(&mut cursor)?;
+                        let score = cursor.read_i32::<LittleEndian>()?;
+                        players.push(QueryPlayer { name, score });
+                    }
+                    QueryPayload::Players(players)
+                } else {
+                    QueryPayload::Players(vec![])
                 }
-                QueryPayload::Players(players)
             }
             'r' => {
-                let count = cursor.read_u16::<LittleEndian>()?;
-                let mut rules = Vec::with_capacity(count as usize);
-                for _ in 0..count {
-                    let name = read_u8_str(&mut cursor)?;
-                    let value = read_u8_str(&mut cursor)?;
-                    rules.push((name, value));
+                if is_response {
+                    let count = cursor.read_u16::<LittleEndian>()?;
+                    let mut rules = Vec::with_capacity(count as usize);
+                    for _ in 0..count {
+                        let name = read_u8_str(&mut cursor)?;
+                        let value = read_u8_str(&mut cursor)?;
+                        rules.push((name, value));
+                    }
+                    QueryPayload::Rules(rules)
+                } else {
+                    QueryPayload::Rules(vec![])
                 }
-                QueryPayload::Rules(rules)
             }
             'o' => {
-                let discord_link = read_u32_str(&mut cursor)?;
-                let light_banner_url = read_u32_str(&mut cursor)?;
-                let dark_banner_url = read_u32_str(&mut cursor)?;
-                let logo_url = read_u32_str(&mut cursor)?;
-                QueryPayload::ExtraInfo {
-                    discord_link,
-                    light_banner_url,
-                    dark_banner_url,
-                    logo_url,
+                if is_response {
+                    let discord_link = read_u32_str(&mut cursor)?;
+                    let light_banner_url = read_u32_str(&mut cursor)?;
+                    let dark_banner_url = read_u32_str(&mut cursor)?;
+                    let logo_url = read_u32_str(&mut cursor)?;
+                    QueryPayload::ExtraInfo {
+                        discord_link,
+                        light_banner_url,
+                        dark_banner_url,
+                        logo_url,
+                    }
+                } else {
+                    QueryPayload::ExtraInfo {
+                        discord_link: String::new(),
+                        light_banner_url: String::new(),
+                        dark_banner_url: String::new(),
+                        logo_url: String::new(),
+                    }
                 }
             }
             'x' => {
@@ -363,7 +391,7 @@ mod tests {
         };
 
         let data = p.serialize().unwrap();
-        let parsed = QueryPacket::parse(&data, false).unwrap();
+        let parsed = QueryPacket::parse(&data, true).unwrap();
         assert_eq!(parsed, p);
     }
 
@@ -378,7 +406,7 @@ mod tests {
         };
 
         let data = p.serialize().unwrap();
-        let parsed = QueryPacket::parse(&data, false).unwrap();
+        let parsed = QueryPacket::parse(&data, true).unwrap();
         assert_eq!(parsed, p);
     }
 
@@ -393,7 +421,7 @@ mod tests {
         };
 
         let data = p.serialize().unwrap();
-        let parsed = QueryPacket::parse(&data, false).unwrap();
+        let parsed = QueryPacket::parse(&data, true).unwrap();
         assert_eq!(parsed, p);
     }
 
@@ -410,7 +438,7 @@ mod tests {
         };
 
         let data = p.serialize().unwrap();
-        let parsed = QueryPacket::parse(&data, false).unwrap();
+        let parsed = QueryPacket::parse(&data, true).unwrap();
         assert_eq!(parsed, p);
     }
 
