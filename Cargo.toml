@@ -3,10 +3,9 @@ name = "raknet-rs"
 version = "0.1.0"
 edition = "2024"
 authors = ["Antigravity & open.mp developers"]
-description = "Modern Rust FFI wrapper for modified RakNet 2.52 used in open.mp"
+description = "Modern Rust implementation of modified RakNet 2.52 extensions used in open.mp/SAMP"
 
 [dependencies]
-libc = "0.2"
-
-[build-dependencies]
-cc = { version = "1.0", features = ["parallel"] }
+rand = "0.8"
+byteorder = "1.5"
+thiserror = "1.0"

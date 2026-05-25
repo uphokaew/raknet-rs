@@ -1,14 +1,27 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Modern Rust implementation of modified RakNet 2.52 extensions used in SA-MP and open.mp.
+//!
+//! Provides protocol features:
+//! - Customized RakNet packet encryption and decryption
+//! - Anti-DOS verification cookies (IP-dependent u16 cookies)
+//! - Challenge-response client authentication table (AuthTable)
+//! - UDP Server Query Protocol codec
+//! - Connection state validation manager (handshake checks and connection limits)
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod crypto;
+pub mod auth;
+pub mod cookie;
+pub mod query;
+pub mod conn;
+pub mod bitstream;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+// Re-export common items for easier usage
+pub use crypto::{decrypt, encrypt, DECRYPT_KEY_TABLE};
+pub use auth::{generate_auth, check_auth, AUTH_TABLE, AuthEntry};
+pub use cookie::CookieJar;
+pub use query::{QueryPacket, QueryPayload, QueryHeader, QueryPlayer, QueryError, BASE_QUERY_SIZE};
+pub use conn::{
+    ConnectionManager, ConnectionLimits, HandshakeResult, RejectionReason,
+    ID_OPEN_CONNECTION_COOKIE, ID_USER_PACKET_ENUM, MAGIC_OMP_IDENTIFICATION_NUMBER,
+    OMP_PETARDED, SAMP_PETARDED,
+};
+pub use bitstream::BitStream;

@@ -1,0 +1,443 @@
+//! SA-MP legacy UDP Query Protocol encoder and decoder.
+//!
+//! Handles building and parsing query packets ('i' - Info, 'c' - Players,
+//! 'r' - Rules, 'o' - Extra Info, 'p' - Ping, 'x' - RCON).
+
+use std::net::Ipv4Addr;
+use std::io::{self, Cursor, Read, Write};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+
+/// The fixed size of the SA-MP query packet header.
+pub const BASE_QUERY_SIZE: usize = 11;
+
+/// SA-MP Query Signature: "SAMP"
+pub const SAMP_SIGNATURE: &[u8; 4] = b"SAMP";
+
+/// Errors that can occur during query packet parsing or serialization.
+#[derive(Debug, thiserror::Error)]
+pub enum QueryError {
+    /// The signature does not match "SAMP".
+    #[error("Invalid signature: expected 'SAMP', found {0:?}")]
+    InvalidSignature(Vec<u8>),
+
+    /// Packet is too small to contain a valid header.
+    #[error("Packet size is too small: {0} bytes (minimum is 11)")]
+    PacketTooSmall(usize),
+
+    /// Invalid query opcode.
+    #[error("Invalid opcode: '{0}'")]
+    InvalidOpcode(char),
+
+    /// UTF-8 decode error.
+    #[error("Failed to parse string as UTF-8")]
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
+
+    /// I/O error during reading/writing.
+    #[error("I/O error: {0}")]
+    Io(#[from] io::Error),
+}
+
+/// The SA-MP query packet header.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryHeader {
+    /// Client or Server IPv4 address bytes.
+    pub ip: Ipv4Addr,
+    /// Server port.
+    pub port: u16,
+    /// Opcode character (e.g. 'i', 'c', 'r', 'o', 'p', 'x').
+    pub opcode: u8,
+}
+
+impl QueryHeader {
+    /// Reads a query header from a byte reader.
+    pub fn read<R: Read>(reader: &mut R) -> Result<Self, QueryError> {
+        let mut sig = [0u8; 4];
+        reader.read_exact(&mut sig)?;
+        if &sig != SAMP_SIGNATURE {
+            return Err(QueryError::InvalidSignature(sig.to_vec()));
+        }
+
+        let mut ip_bytes = [0u8; 4];
+        reader.read_exact(&mut ip_bytes)?;
+        let ip = Ipv4Addr::from(ip_bytes);
+        
+        let port = reader.read_u16::<LittleEndian>()?;
+        let opcode = reader.read_u8()?;
+
+        Ok(Self { ip, port, opcode })
+    }
+
+    /// Writes the query header to a byte writer.
+    pub fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(SAMP_SIGNATURE)?;
+        writer.write_all(&self.ip.octets())?;
+        writer.write_u16::<LittleEndian>(self.port)?;
+        writer.write_u8(self.opcode)?;
+        Ok(())
+    }
+}
+
+/// Player information returned in the 'c' (Players) query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryPlayer {
+    /// Player username.
+    pub name: String,
+    /// Player score.
+    pub score: i32,
+}
+
+/// A parsed SA-MP query packet payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueryPayload {
+    /// Ping opcode ('p')
+    Ping(u32),
+
+    /// Info opcode ('i')
+    Info {
+        passworded: bool,
+        players: u16,
+        max_players: u16,
+        hostname: String,
+        gamemode: String,
+        language: String,
+    },
+
+    /// Players opcode ('c')
+    Players(Vec<QueryPlayer>),
+
+    /// Rules opcode ('r')
+    Rules(Vec<(String, String)>),
+
+    /// Extra Info opcode ('o') - open.mp specific
+    ExtraInfo {
+        discord_link: String,
+        light_banner_url: String,
+        dark_banner_url: String,
+        logo_url: String,
+    },
+
+    /// RCON request opcode ('x')
+    RconRequest {
+        password: String,
+        command: String,
+    },
+
+    /// RCON response opcode ('x')
+    RconResponse(String),
+}
+
+/// A complete query packet containing a header and payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryPacket {
+    pub header: QueryHeader,
+    pub payload: QueryPayload,
+}
+
+impl QueryPacket {
+    /// Parses a raw query UDP packet.
+    ///
+    /// # Arguments
+    /// * `data` - The raw UDP payload bytes.
+    /// * `is_response` - True if parsing a server response, false for client requests.
+    pub fn parse(data: &[u8], is_response: bool) -> Result<Self, QueryError> {
+        if data.len() < BASE_QUERY_SIZE {
+            return Err(QueryError::PacketTooSmall(data.len()));
+        }
+
+        let mut cursor = Cursor::new(data);
+        let header = QueryHeader::read(&mut cursor)?;
+        let payload = match header.opcode as char {
+            'p' => {
+                let token = cursor.read_u32::<LittleEndian>()?;
+                QueryPayload::Ping(token)
+            }
+            'i' => {
+                let passworded = cursor.read_u8()? != 0;
+                let players = cursor.read_u16::<LittleEndian>()?;
+                let max_players = cursor.read_u16::<LittleEndian>()?;
+                
+                let hostname = read_u32_str(&mut cursor)?;
+                let gamemode = read_u32_str(&mut cursor)?;
+                let language = read_u32_str(&mut cursor)?;
+
+                QueryPayload::Info {
+                    passworded,
+                    players,
+                    max_players,
+                    hostname,
+                    gamemode,
+                    language,
+                }
+            }
+            'c' => {
+                let count = cursor.read_u16::<LittleEndian>()?;
+                let mut players = Vec::with_capacity(count as usize);
+                for _ in 0..count {
+                    let name = read_u8_str(&mut cursor)?;
+                    let score = cursor.read_i32::<LittleEndian>()?;
+                    players.push(QueryPlayer { name, score });
+                }
+                QueryPayload::Players(players)
+            }
+            'r' => {
+                let count = cursor.read_u16::<LittleEndian>()?;
+                let mut rules = Vec::with_capacity(count as usize);
+                for _ in 0..count {
+                    let name = read_u8_str(&mut cursor)?;
+                    let value = read_u8_str(&mut cursor)?;
+                    rules.push((name, value));
+                }
+                QueryPayload::Rules(rules)
+            }
+            'o' => {
+                let discord_link = read_u32_str(&mut cursor)?;
+                let light_banner_url = read_u32_str(&mut cursor)?;
+                let dark_banner_url = read_u32_str(&mut cursor)?;
+                let logo_url = read_u32_str(&mut cursor)?;
+                QueryPayload::ExtraInfo {
+                    discord_link,
+                    light_banner_url,
+                    dark_banner_url,
+                    logo_url,
+                }
+            }
+            'x' => {
+                if is_response {
+                    let msg = read_u16_str(&mut cursor)?;
+                    QueryPayload::RconResponse(msg)
+                } else {
+                    let password = read_u16_str(&mut cursor)?;
+                    let command = read_u16_str(&mut cursor)?;
+                    QueryPayload::RconRequest { password, command }
+                }
+            }
+            c => return Err(QueryError::InvalidOpcode(c)),
+        };
+
+        Ok(Self { header, payload })
+    }
+
+    /// Serializes this query packet to a byte vector.
+    pub fn serialize(&self) -> Result<Vec<u8>, QueryError> {
+        let mut buf = Vec::new();
+        self.header.write(&mut buf)?;
+
+        match &self.payload {
+            QueryPayload::Ping(token) => {
+                buf.write_u32::<LittleEndian>(*token)?;
+            }
+            QueryPayload::Info {
+                passworded,
+                players,
+                max_players,
+                hostname,
+                gamemode,
+                language,
+            } => {
+                buf.write_u8(*passworded as u8)?;
+                buf.write_u16::<LittleEndian>(*players)?;
+                buf.write_u16::<LittleEndian>(*max_players)?;
+                write_u32_str(&mut buf, hostname)?;
+                write_u32_str(&mut buf, gamemode)?;
+                write_u32_str(&mut buf, language)?;
+            }
+            QueryPayload::Players(players) => {
+                buf.write_u16::<LittleEndian>(players.len() as u16)?;
+                for player in players {
+                    write_u8_str(&mut buf, &player.name)?;
+                    buf.write_i32::<LittleEndian>(player.score)?;
+                }
+            }
+            QueryPayload::Rules(rules) => {
+                buf.write_u16::<LittleEndian>(rules.len() as u16)?;
+                for (name, val) in rules {
+                    write_u8_str(&mut buf, name)?;
+                    write_u8_str(&mut buf, val)?;
+                }
+            }
+            QueryPayload::ExtraInfo {
+                discord_link,
+                light_banner_url,
+                dark_banner_url,
+                logo_url,
+            } => {
+                write_u32_str(&mut buf, discord_link)?;
+                write_u32_str(&mut buf, light_banner_url)?;
+                write_u32_str(&mut buf, dark_banner_url)?;
+                write_u32_str(&mut buf, logo_url)?;
+            }
+            QueryPayload::RconRequest { password, command } => {
+                write_u16_str(&mut buf, password)?;
+                write_u16_str(&mut buf, command)?;
+            }
+            QueryPayload::RconResponse(msg) => {
+                write_u16_str(&mut buf, msg)?;
+            }
+        }
+
+        Ok(buf)
+    }
+}
+
+// Helpers for reading string layouts
+
+fn read_u8_str<R: Read>(reader: &mut R) -> Result<String, QueryError> {
+    let len = reader.read_u8()? as usize;
+    let mut buf = vec![0u8; len];
+    reader.read_exact(&mut buf)?;
+    Ok(String::from_utf8(buf)?)
+}
+
+fn read_u16_str<R: Read>(reader: &mut R) -> Result<String, QueryError> {
+    let len = reader.read_u16::<LittleEndian>()? as usize;
+    let mut buf = vec![0u8; len];
+    reader.read_exact(&mut buf)?;
+    Ok(String::from_utf8(buf)?)
+}
+
+fn read_u32_str<R: Read>(reader: &mut R) -> Result<String, QueryError> {
+    let len = reader.read_u32::<LittleEndian>()? as usize;
+    let mut buf = vec![0u8; len];
+    reader.read_exact(&mut buf)?;
+    Ok(String::from_utf8(buf)?)
+}
+
+// Helpers for writing string layouts
+
+fn write_u8_str<W: Write>(writer: &mut W, val: &str) -> io::Result<()> {
+    writer.write_u8(val.len() as u8)?;
+    writer.write_all(val.as_bytes())?;
+    Ok(())
+}
+
+fn write_u16_str<W: Write>(writer: &mut W, val: &str) -> io::Result<()> {
+    writer.write_u16::<LittleEndian>(val.len() as u16)?;
+    writer.write_all(val.as_bytes())?;
+    Ok(())
+}
+
+fn write_u32_str<W: Write>(writer: &mut W, val: &str) -> io::Result<()> {
+    writer.write_u32::<LittleEndian>(val.len() as u32)?;
+    writer.write_all(val.as_bytes())?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn get_test_header(opcode: char) -> QueryHeader {
+        QueryHeader {
+            ip: Ipv4Addr::new(127, 0, 0, 1),
+            port: 7777,
+            opcode: opcode as u8,
+        }
+    }
+
+    #[test]
+    fn test_ping_serialization() {
+        let p = QueryPacket {
+            header: get_test_header('p'),
+            payload: QueryPayload::Ping(1337),
+        };
+
+        let data = p.serialize().unwrap();
+        assert_eq!(data.len(), BASE_QUERY_SIZE + 4);
+
+        let parsed = QueryPacket::parse(&data, false).unwrap();
+        assert_eq!(parsed, p);
+    }
+
+    #[test]
+    fn test_info_serialization() {
+        let p = QueryPacket {
+            header: get_test_header('i'),
+            payload: QueryPayload::Info {
+                passworded: true,
+                players: 15,
+                max_players: 100,
+                hostname: "My Super Rust Server".to_string(),
+                gamemode: "LVDM".to_string(),
+                language: "Thai".to_string(),
+            },
+        };
+
+        let data = p.serialize().unwrap();
+        let parsed = QueryPacket::parse(&data, false).unwrap();
+        assert_eq!(parsed, p);
+    }
+
+    #[test]
+    fn test_players_serialization() {
+        let p = QueryPacket {
+            header: get_test_header('c'),
+            payload: QueryPayload::Players(vec![
+                QueryPlayer { name: "Player1".to_string(), score: 500 },
+                QueryPlayer { name: "Player2".to_string(), score: 0 },
+            ]),
+        };
+
+        let data = p.serialize().unwrap();
+        let parsed = QueryPacket::parse(&data, false).unwrap();
+        assert_eq!(parsed, p);
+    }
+
+    #[test]
+    fn test_rules_serialization() {
+        let p = QueryPacket {
+            header: get_test_header('r'),
+            payload: QueryPayload::Rules(vec![
+                ("version".to_string(), "0.3.7".to_string()),
+                ("weather".to_string(), "1".to_string()),
+            ]),
+        };
+
+        let data = p.serialize().unwrap();
+        let parsed = QueryPacket::parse(&data, false).unwrap();
+        assert_eq!(parsed, p);
+    }
+
+    #[test]
+    fn test_extra_info_serialization() {
+        let p = QueryPacket {
+            header: get_test_header('o'),
+            payload: QueryPayload::ExtraInfo {
+                discord_link: "discord.gg/openmp".to_string(),
+                light_banner_url: "https://example.com/light.png".to_string(),
+                dark_banner_url: "https://example.com/dark.png".to_string(),
+                logo_url: "https://example.com/logo.png".to_string(),
+            },
+        };
+
+        let data = p.serialize().unwrap();
+        let parsed = QueryPacket::parse(&data, false).unwrap();
+        assert_eq!(parsed, p);
+    }
+
+    #[test]
+    fn test_rcon_request_serialization() {
+        let p = QueryPacket {
+            header: get_test_header('x'),
+            payload: QueryPayload::RconRequest {
+                password: "my_rcon_password".to_string(),
+                command: "say Hello from Rust!".to_string(),
+            },
+        };
+
+        let data = p.serialize().unwrap();
+        let parsed = QueryPacket::parse(&data, false).unwrap();
+        assert_eq!(parsed, p);
+    }
+
+    #[test]
+    fn test_rcon_response_serialization() {
+        let p = QueryPacket {
+            header: get_test_header('x'),
+            payload: QueryPayload::RconResponse("All players kicked.".to_string()),
+        };
+
+        let data = p.serialize().unwrap();
+        let parsed = QueryPacket::parse(&data, true).unwrap();
+        assert_eq!(parsed, p);
+    }
+}
