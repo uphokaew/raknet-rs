@@ -333,40 +333,43 @@ fn read_u8_str<R: Read>(reader: &mut R) -> Result<String, QueryError> {
     let len = reader.read_u8()? as usize;
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf)?;
-    Ok(String::from_utf8(buf)?)
+    Ok(crate::tis620::decode_tis620(&buf))
 }
 
 fn read_u16_str<R: Read>(reader: &mut R) -> Result<String, QueryError> {
     let len = reader.read_u16::<LittleEndian>()? as usize;
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf)?;
-    Ok(String::from_utf8(buf)?)
+    Ok(crate::tis620::decode_tis620(&buf))
 }
 
 fn read_u32_str<R: Read>(reader: &mut R) -> Result<String, QueryError> {
     let len = reader.read_u32::<LittleEndian>()? as usize;
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf)?;
-    Ok(String::from_utf8(buf)?)
+    Ok(crate::tis620::decode_tis620(&buf))
 }
 
 // Helpers for writing string layouts
 
 fn write_u8_str<W: Write>(writer: &mut W, val: &str) -> io::Result<()> {
-    writer.write_u8(val.len() as u8)?;
-    writer.write_all(val.as_bytes())?;
+    let encoded = crate::tis620::encode_tis620(val);
+    writer.write_u8(encoded.len() as u8)?;
+    writer.write_all(&encoded)?;
     Ok(())
 }
 
 fn write_u16_str<W: Write>(writer: &mut W, val: &str) -> io::Result<()> {
-    writer.write_u16::<LittleEndian>(val.len() as u16)?;
-    writer.write_all(val.as_bytes())?;
+    let encoded = crate::tis620::encode_tis620(val);
+    writer.write_u16::<LittleEndian>(encoded.len() as u16)?;
+    writer.write_all(&encoded)?;
     Ok(())
 }
 
 fn write_u32_str<W: Write>(writer: &mut W, val: &str) -> io::Result<()> {
-    writer.write_u32::<LittleEndian>(val.len() as u32)?;
-    writer.write_all(val.as_bytes())?;
+    let encoded = crate::tis620::encode_tis620(val);
+    writer.write_u32::<LittleEndian>(encoded.len() as u32)?;
+    writer.write_all(&encoded)?;
     Ok(())
 }
 

@@ -14,6 +14,8 @@ pub mod query;
 pub mod conn;
 pub mod bitstream;
 pub mod datagram;
+pub mod tis620;
+pub mod rpc;
 
 // Re-export common items for easier usage
 pub use crypto::{decrypt, encrypt, DECRYPT_KEY_TABLE};
@@ -30,3 +32,4 @@ pub use datagram::{
     Datagram, InternalPacket, RangeList, RangeNode,
     UNRELIABLE, UNRELIABLE_SEQUENCED, RELIABLE, RELIABLE_ORDERED, RELIABLE_SEQUENCED,
 };
+pub use tis620::{encode_tis620, decode_tis620};
