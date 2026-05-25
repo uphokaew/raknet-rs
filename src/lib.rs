@@ -13,6 +13,7 @@ pub mod cookie;
 pub mod query;
 pub mod conn;
 pub mod bitstream;
+pub mod datagram;
 
 // Re-export common items for easier usage
 pub use crypto::{decrypt, encrypt, DECRYPT_KEY_TABLE};
@@ -25,3 +26,7 @@ pub use conn::{
     OMP_PETARDED, SAMP_PETARDED,
 };
 pub use bitstream::BitStream;
+pub use datagram::{
+    Datagram, InternalPacket, RangeList, RangeNode,
+    UNRELIABLE, UNRELIABLE_SEQUENCED, RELIABLE, RELIABLE_ORDERED, RELIABLE_SEQUENCED,
+};

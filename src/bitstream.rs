@@ -266,6 +266,35 @@ impl BitStream {
         }
         Some(val)
     }
+
+    /// Aligns the write offset to the next byte boundary.
+    pub fn align_write_to_byte_boundary(&mut self) {
+        if self.write_offset_bits % 8 != 0 {
+            let bits_to_add = 8 - (self.write_offset_bits % 8);
+            for _ in 0..bits_to_add {
+                self.write_bit(false);
+            }
+        }
+    }
+
+    /// Aligns the read offset to the next byte boundary.
+    pub fn align_read_to_byte_boundary(&mut self) {
+        if self.read_offset_bits % 8 != 0 {
+            self.read_offset_bits += 8 - (self.read_offset_bits % 8);
+        }
+    }
+
+    /// Writes a slice of bytes aligned to the next byte boundary.
+    pub fn write_aligned_bytes(&mut self, bytes: &[u8]) {
+        self.align_write_to_byte_boundary();
+        self.write_bytes(bytes);
+    }
+
+    /// Reads a slice of bytes aligned to the next byte boundary.
+    pub fn read_aligned_bytes(&mut self, num_bytes: usize) -> Option<Vec<u8>> {
+        self.align_read_to_byte_boundary();
+        self.read_bytes(num_bytes)
+    }
 }
 
 #[cfg(test)]

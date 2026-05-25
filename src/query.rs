@@ -51,9 +51,14 @@ pub struct QueryHeader {
 impl QueryHeader {
     /// Reads a query header from a byte reader.
     pub fn read<R: Read>(reader: &mut R) -> Result<Self, QueryError> {
+        Self::read_with_signature(reader, SAMP_SIGNATURE)
+    }
+
+    /// Reads a query header with a custom signature.
+    pub fn read_with_signature<R: Read>(reader: &mut R, signature: &[u8; 4]) -> Result<Self, QueryError> {
         let mut sig = [0u8; 4];
         reader.read_exact(&mut sig)?;
-        if &sig != SAMP_SIGNATURE {
+        if &sig != signature {
             return Err(QueryError::InvalidSignature(sig.to_vec()));
         }
 
@@ -69,7 +74,12 @@ impl QueryHeader {
 
     /// Writes the query header to a byte writer.
     pub fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        writer.write_all(SAMP_SIGNATURE)?;
+        self.write_with_signature(writer, SAMP_SIGNATURE)
+    }
+
+    /// Writes the query header with a custom signature.
+    pub fn write_with_signature<W: Write>(&self, writer: &mut W, signature: &[u8; 4]) -> io::Result<()> {
+        writer.write_all(signature)?;
         writer.write_all(&self.ip.octets())?;
         writer.write_u16::<LittleEndian>(self.port)?;
         writer.write_u8(self.opcode)?;
@@ -140,12 +150,17 @@ impl QueryPacket {
     /// * `data` - The raw UDP payload bytes.
     /// * `is_response` - True if parsing a server response, false for client requests.
     pub fn parse(data: &[u8], is_response: bool) -> Result<Self, QueryError> {
+        Self::parse_with_signature(data, is_response, SAMP_SIGNATURE)
+    }
+
+    /// Parses a raw query UDP packet with a custom signature.
+    pub fn parse_with_signature(data: &[u8], is_response: bool, signature: &[u8; 4]) -> Result<Self, QueryError> {
         if data.len() < BASE_QUERY_SIZE {
             return Err(QueryError::PacketTooSmall(data.len()));
         }
 
         let mut cursor = Cursor::new(data);
-        let header = QueryHeader::read(&mut cursor)?;
+        let header = QueryHeader::read_with_signature(&mut cursor, signature)?;
         let payload = match header.opcode as char {
             'p' => {
                 let token = cursor.read_u32::<LittleEndian>()?;
@@ -247,8 +262,13 @@ impl QueryPacket {
 
     /// Serializes this query packet to a byte vector.
     pub fn serialize(&self) -> Result<Vec<u8>, QueryError> {
+        self.serialize_with_signature(SAMP_SIGNATURE)
+    }
+
+    /// Serializes this query packet to a byte vector with a custom signature.
+    pub fn serialize_with_signature(&self, signature: &[u8; 4]) -> Result<Vec<u8>, QueryError> {
         let mut buf = Vec::new();
-        self.header.write(&mut buf)?;
+        self.header.write_with_signature(&mut buf, signature)?;
 
         match &self.payload {
             QueryPayload::Ping(token) => {
@@ -467,5 +487,30 @@ mod tests {
         let data = p.serialize().unwrap();
         let parsed = QueryPacket::parse(&data, true).unwrap();
         assert_eq!(parsed, p);
+    }
+
+    #[test]
+    fn test_custom_signature_serialization() {
+        let p = QueryPacket {
+            header: get_test_header('i'),
+            payload: QueryPayload::Info {
+                passworded: false,
+                players: 0,
+                max_players: 100,
+                hostname: "Rust Server".to_string(),
+                gamemode: "CustomMode".to_string(),
+                language: "Thai".to_string(),
+            },
+        };
+
+        let custom_sig = b"RUST";
+        let data = p.serialize_with_signature(custom_sig).unwrap();
+        assert_eq!(&data[0..4], custom_sig);
+
+        let parsed = QueryPacket::parse_with_signature(&data, true, custom_sig).unwrap();
+        assert_eq!(parsed, p);
+
+        // Parsing with standard SAMP signature must fail
+        assert!(QueryPacket::parse_with_signature(&data, true, b"SAMP").is_err());
     }
 }
