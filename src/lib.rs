@@ -27,7 +27,7 @@ pub use conn::{
     ID_OPEN_CONNECTION_COOKIE, ID_USER_PACKET_ENUM, MAGIC_OMP_IDENTIFICATION_NUMBER,
     OMP_PETARDED, SAMP_PETARDED,
 };
-pub use bitstream::BitStream;
+pub use bitstream::{BitStream, SafeBufCast};
 pub use datagram::{
     Datagram, InternalPacket, RangeList, RangeNode,
     UNRELIABLE, UNRELIABLE_SEQUENCED, RELIABLE, RELIABLE_ORDERED, RELIABLE_SEQUENCED,

@@ -169,3 +169,101 @@ fn test_integration_rpc_serialization() {
     assert_eq!(parsed_payload, payload_data);
 }
 
+#[test]
+fn test_integration_safebufcast_primitives() {
+    use raknet_rs::BitStream;
+
+    let mut bs = BitStream::new();
+
+    // Primitive values
+    let val_u8: u8 = 250;
+    let val_u16: u16 = 60000;
+    let val_u32: u32 = 4000000000;
+    let val_u64: u64 = 18000000000000000000;
+    let val_u128: u128 = 340000000000000000000000000000000000000;
+    let val_usize: usize = 123456;
+
+    let val_i8: i8 = -100;
+    let val_i16: i16 = -30000;
+    let val_i32: i32 = -2000000000;
+    let val_i64: i64 = -9000000000000000000;
+    let val_i128: i128 = -170000000000000000000000000000000000000;
+    let val_isize: isize = -654321;
+
+    let val_f32: f32 = 3.14159;
+    let val_f64: f64 = 2.718281828459;
+    let val_bool: bool = true;
+    let val_char: char = '🇹';
+
+    // Write all of them
+    bs.write(&val_u8);
+    bs.write(&val_u16);
+    bs.write(&val_u32);
+    bs.write(&val_u64);
+    bs.write(&val_u128);
+    bs.write(&val_usize);
+
+    bs.write(&val_i8);
+    bs.write(&val_i16);
+    bs.write(&val_i32);
+    bs.write(&val_i64);
+    bs.write(&val_i128);
+    bs.write(&val_isize);
+
+    bs.write(&val_f32);
+    bs.write(&val_f64);
+    bs.write(&val_bool);
+    bs.write(&val_char);
+
+    // Reset read pointer
+    bs.reset_read_pointer();
+
+    // Read and verify all
+    assert_eq!(bs.read::<u8>(), Some(val_u8));
+    assert_eq!(bs.read::<u16>(), Some(val_u16));
+    assert_eq!(bs.read::<u32>(), Some(val_u32));
+    assert_eq!(bs.read::<u64>(), Some(val_u64));
+    assert_eq!(bs.read::<u128>(), Some(val_u128));
+    assert_eq!(bs.read::<usize>(), Some(val_usize));
+
+    assert_eq!(bs.read::<i8>(), Some(val_i8));
+    assert_eq!(bs.read::<i16>(), Some(val_i16));
+    assert_eq!(bs.read::<i32>(), Some(val_i32));
+    assert_eq!(bs.read::<i64>(), Some(val_i64));
+    assert_eq!(bs.read::<i128>(), Some(val_i128));
+    assert_eq!(bs.read::<isize>(), Some(val_isize));
+
+    assert_eq!(bs.read::<f32>(), Some(val_f32));
+    assert_eq!(bs.read::<f64>(), Some(val_f64));
+    assert_eq!(bs.read::<bool>(), Some(val_bool));
+    assert_eq!(bs.read::<char>(), Some(val_char));
+
+    // Next read should be out of bounds
+    assert_eq!(bs.read::<u8>(), None);
+}
+
+#[test]
+fn test_integration_bitstream_bounds_checking() {
+    use raknet_rs::BitStream;
+
+    let mut bs = BitStream::from_slice(&[0x12, 0x34]);
+    
+    // Total bits is 16. Reading 17 bits should return None
+    assert_eq!(bs.read_bits(17, false), None);
+
+    // Reading 8 bits should succeed
+    let first_byte = bs.read_bits(8, false).unwrap();
+    assert_eq!(first_byte, vec![0x12]);
+
+    // Reading 9 bits now should fail (only 8 bits remain)
+    assert_eq!(bs.read_bits(9, false), None);
+
+    // Reading 8 bits should succeed
+    let second_byte = bs.read_bits(8, false).unwrap();
+    assert_eq!(second_byte, vec![0x34]);
+
+    // Reading 1 more bit should fail
+    assert_eq!(bs.read_bit(), None);
+}
+
+

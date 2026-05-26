@@ -3,6 +3,32 @@
 //! Provides reading/writing of values at the bit level, including the specific
 //! integer compression algorithm used by RakNet.
 
+/// A marker trait for types that are safe to cast to/from raw bytes for network serialization.
+///
+/// # Safety
+/// Implementing this trait implies that the type consists only of Plain Old Data (POD)
+/// and has no internal pointers, references, uninitialized memory padding, or drop glue.
+pub unsafe trait SafeBufCast: Copy + Default {}
+
+unsafe impl SafeBufCast for u8 {}
+unsafe impl SafeBufCast for u16 {}
+unsafe impl SafeBufCast for u32 {}
+unsafe impl SafeBufCast for u64 {}
+unsafe impl SafeBufCast for u128 {}
+unsafe impl SafeBufCast for usize {}
+
+unsafe impl SafeBufCast for i8 {}
+unsafe impl SafeBufCast for i16 {}
+unsafe impl SafeBufCast for i32 {}
+unsafe impl SafeBufCast for i64 {}
+unsafe impl SafeBufCast for i128 {}
+unsafe impl SafeBufCast for isize {}
+
+unsafe impl SafeBufCast for f32 {}
+unsafe impl SafeBufCast for f64 {}
+unsafe impl SafeBufCast for bool {}
+unsafe impl SafeBufCast for char {}
+
 /// A bit-level buffer for serializing and deserializing RakNet packets.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BitStream {
@@ -151,7 +177,7 @@ impl BitStream {
     }
 
     /// Writes an uncompressed value of any type that implements `AsBytes` / simple byte casting.
-    pub fn write<T: Sized>(&mut self, value: &T) {
+    pub fn write<T: SafeBufCast>(&mut self, value: &T) {
         let bytes = unsafe {
             std::slice::from_raw_parts(value as *const T as *const u8, std::mem::size_of::<T>())
         };
@@ -159,7 +185,7 @@ impl BitStream {
     }
 
     /// Reads an uncompressed value of any type.
-    pub fn read<T: Sized + Default>(&mut self) -> Option<T> {
+    pub fn read<T: SafeBufCast>(&mut self) -> Option<T> {
         let size = std::mem::size_of::<T>();
         let bytes = self.read_bits(size * 8, false)?;
         let mut val = T::default();
@@ -181,7 +207,7 @@ impl BitStream {
     }
 
     /// Writes a compressed value using RakNet's specific byte-skipping algorithm.
-    pub fn write_compressed<T: Sized>(&mut self, value: &T, unsigned: bool) {
+    pub fn write_compressed<T: SafeBufCast>(&mut self, value: &T, unsigned: bool) {
         let size_bytes = std::mem::size_of::<T>();
         let bytes = unsafe {
             std::slice::from_raw_parts(value as *const T as *const u8, size_bytes)
@@ -224,7 +250,7 @@ impl BitStream {
     }
 
     /// Reads a compressed value of any type using RakNet's specific byte-skipping algorithm.
-    pub fn read_compressed<T: Sized + Default>(&mut self, unsigned: bool) -> Option<T> {
+    pub fn read_compressed<T: SafeBufCast>(&mut self, unsigned: bool) -> Option<T> {
         let size_bytes = std::mem::size_of::<T>();
         let num_bits = size_bytes * 8;
 
