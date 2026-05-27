@@ -42,6 +42,15 @@ pub struct BitStream {
 
 impl BitStream {
     /// Creates a new empty `BitStream`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use raknet_rs::BitStream;
+    ///
+    /// let mut bs = BitStream::new();
+    /// bs.write(&42u32);
+    /// ```
     pub fn new() -> Self {
         Self {
             data: Vec::new(),
@@ -209,7 +218,16 @@ impl BitStream {
         Some(output)
     }
 
-    /// Writes an uncompressed value of any type that implements `AsBytes` / simple byte casting.
+    /// Writes an uncompressed value of any type that implements `SafeBufCast` / simple byte casting.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use raknet_rs::BitStream;
+    ///
+    /// let mut bs = BitStream::new();
+    /// bs.write(&100u16);
+    /// ```
     pub fn write<T: SafeBufCast>(&mut self, value: &T) {
         let bytes = unsafe {
             std::slice::from_raw_parts(value as *const T as *const u8, std::mem::size_of::<T>())
@@ -218,6 +236,18 @@ impl BitStream {
     }
 
     /// Reads an uncompressed value of any type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use raknet_rs::BitStream;
+    ///
+    /// let mut bs = BitStream::new();
+    /// bs.write(&100u16);
+    ///
+    /// let val: u16 = bs.read().unwrap();
+    /// assert_eq!(val, 100);
+    /// ```
     pub fn read<T: SafeBufCast>(&mut self) -> Option<T> {
         let size = std::mem::size_of::<T>();
         let mut val = T::default();
@@ -239,6 +269,15 @@ impl BitStream {
     }
 
     /// Writes a compressed value using RakNet's specific byte-skipping algorithm.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use raknet_rs::BitStream;
+    ///
+    /// let mut bs = BitStream::new();
+    /// bs.write_compressed(&15u32, true);
+    /// ```
     pub fn write_compressed<T: SafeBufCast>(&mut self, value: &T, unsigned: bool) {
         let size_bytes = std::mem::size_of::<T>();
         let bytes = unsafe {
@@ -282,6 +321,18 @@ impl BitStream {
     }
 
     /// Reads a compressed value of any type using RakNet's specific byte-skipping algorithm.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use raknet_rs::BitStream;
+    ///
+    /// let mut bs = BitStream::new();
+    /// bs.write_compressed(&15u32, true);
+    ///
+    /// let val: u32 = bs.read_compressed(true).unwrap();
+    /// assert_eq!(val, 15);
+    /// ```
     pub fn read_compressed<T: SafeBufCast>(&mut self, unsigned: bool) -> Option<T> {
         let size_bytes = std::mem::size_of::<T>();
         let num_bits = size_bytes * 8;

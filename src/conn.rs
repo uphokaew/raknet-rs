@@ -122,6 +122,21 @@ impl ConnectionManager {
 
     /// Processes an incoming connection request packet.
     ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::Ipv4Addr;
+    /// use raknet_rs::{ConnectionManager, CookieJar, HandshakeResult};
+    ///
+    /// let jar = CookieJar::new_seeded();
+    /// let mut manager = ConnectionManager::new(jar, 0x000104);
+    /// let ip = Ipv4Addr::new(127, 0, 0, 1);
+    ///
+    /// // Handle packet request ID 11
+    /// let result = manager.handle_connection_request(ip, &[11], || 0x12345678);
+    /// assert!(matches!(result, HandshakeResult::SendCookie(_)));
+    /// ```
+    ///
     /// # Arguments
     /// * `ip` - The IPv4 address of the sender.
     /// * `payload` - The raw packet payload (minimum 3 bytes for cookie parsing).

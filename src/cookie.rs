@@ -30,6 +30,14 @@ impl CookieJar {
     }
 
     /// Creates a new `CookieJar` seeded using thread-local RNG.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use raknet_rs::CookieJar;
+    ///
+    /// let jar = CookieJar::new_seeded();
+    /// ```
     pub fn new_seeded() -> Self {
         let mut jar = Self::new();
         jar.seed();
@@ -50,6 +58,17 @@ impl CookieJar {
     /// The calculation matches the byte pointer cast logic used by the C++ implementation:
     /// `(cookies[0][byte0] | cookies[1][byte3] << 8) ^ ((byte1 << 8) | byte2)`
     /// where `byte0..byte3` represent memory layout on little-endian platforms.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::Ipv4Addr;
+    /// use raknet_rs::CookieJar;
+    ///
+    /// let jar = CookieJar::new_seeded();
+    /// let ip = Ipv4Addr::new(127, 0, 0, 1);
+    /// let cookie = jar.get_cookie(ip);
+    /// ```
     ///
     /// # Arguments
     /// * `ip` - The IPv4 address of the client requesting connection.

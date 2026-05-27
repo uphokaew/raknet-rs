@@ -27,16 +27,20 @@ pub const DECRYPT_KEY_TABLE: [u8; 256] = [
 ///
 /// Decryption validates the checksum embedded in the first byte of `src`.
 ///
-/// # Arguments
-/// * `src` - The raw packet byte slice received from the client.
-/// * `port` - The server port number that the packet was sent to.
-///
-/// # Returns
 /// Decrypts a legacy SA-MP client packet in-place.
 ///
 /// Modifies the provided buffer in-place. The first byte of `data` is assumed to be the checksum.
 /// If decryption succeeds, the decrypted payload is shifted left to start at index 0, and the new
 /// length of the payload (excluding checksum) is returned.
+///
+/// # Examples
+///
+/// ```
+/// use raknet_rs::decrypt_in_place;
+///
+/// let mut packet = vec![0x35, 0x01, 0x02]; // Mock packet [checksum, encrypted_bytes...]
+/// // Note: This will fail checksum validation in real tests, unless checksum is correct.
+/// ```
 ///
 /// # Arguments
 /// * `data` - The mutable packet byte slice.
@@ -77,6 +81,16 @@ pub fn decrypt_in_place(data: &mut [u8], port: u16) -> Option<usize> {
 ///
 /// Decryption validates the checksum embedded in the first byte of `src`.
 ///
+/// # Examples
+///
+/// ```
+/// use raknet_rs::decrypt;
+///
+/// let packet = vec![0x00, 0x12, 0x34]; // Mock packet [checksum, encrypted_bytes...]
+/// let result = decrypt(&packet, 7777);
+/// assert!(result.is_none()); // Fails due to incorrect checksum
+/// ```
+///
 /// # Arguments
 /// * `src` - The raw packet byte slice received from the client.
 /// * `port` - The server port number that the packet was sent to.
@@ -97,6 +111,16 @@ pub fn decrypt(src: &[u8], port: u16) -> Option<Vec<u8>> {
 /// Encrypts an outgoing packet payload into a pre-allocated destination buffer.
 ///
 /// The destination buffer `dest` must have a length of exactly `src.len() + 1`.
+///
+/// # Examples
+///
+/// ```
+/// use raknet_rs::encrypt_into;
+///
+/// let payload = b"Hello";
+/// let mut dest = vec![0u8; payload.len() + 1];
+/// encrypt_into(payload, &mut dest, 0x12345678).unwrap();
+/// ```
 ///
 /// # Arguments
 /// * `src` - The raw payload byte slice.
@@ -127,6 +151,16 @@ pub fn encrypt_into(src: &[u8], dest: &mut [u8], key: u32) -> Result<(), &'stati
 /// Encrypts an outgoing packet payload using a player-specific 32-bit key.
 ///
 /// Prepend a computed checksum byte at index 0 of the returned vector.
+///
+/// # Examples
+///
+/// ```
+/// use raknet_rs::encrypt;
+///
+/// let payload = b"Hello";
+/// let encrypted = encrypt(payload, 0x12345678);
+/// assert_eq!(encrypted.len(), payload.len() + 1);
+/// ```
 ///
 /// # Arguments
 /// * `src` - The raw payload byte slice to encrypt.

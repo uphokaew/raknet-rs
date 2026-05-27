@@ -146,6 +146,15 @@ pub struct QueryPacket {
 impl QueryPacket {
     /// Parses a raw query UDP packet.
     ///
+    /// # Examples
+    ///
+    /// ```
+    /// use raknet_rs::QueryPacket;
+    ///
+    /// let packet_bytes = b"SAMP\x7f\x00\x00\x01\x61\x1e\x70\x05\x00\x00\x00"; // Mock ping packet
+    /// let parsed = QueryPacket::parse(packet_bytes, false);
+    /// ```
+    ///
     /// # Arguments
     /// * `data` - The raw UDP payload bytes.
     /// * `is_response` - True if parsing a server response, false for client requests.
@@ -267,6 +276,19 @@ impl QueryPacket {
     }
 
     /// Serializes this query packet to a byte vector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::Ipv4Addr;
+    /// use raknet_rs::{QueryPacket, QueryHeader, QueryPayload};
+    ///
+    /// let pkt = QueryPacket {
+    ///     header: QueryHeader { ip: Ipv4Addr::new(127, 0, 0, 1), port: 7777, opcode: b'p' },
+    ///     payload: QueryPayload::Ping(1234),
+    /// };
+    /// let bytes = pkt.serialize().unwrap();
+    /// ```
     pub fn serialize(&self) -> Result<Vec<u8>, QueryError> {
         self.serialize_with_signature(SAMP_SIGNATURE)
     }

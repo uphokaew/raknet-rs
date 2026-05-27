@@ -273,6 +273,14 @@ pub static AUTH_TABLE: [AuthEntry; 256] = [
 
 /// Generates a random auth entry for the client challenge.
 ///
+/// # Examples
+///
+/// ```
+/// use raknet_rs::generate_auth;
+///
+/// let (index, challenge) = generate_auth();
+/// ```
+///
 /// # Returns
 /// A tuple containing:
 /// * `u8` - The index of the selected challenge in the `AUTH_TABLE` (0..255).
@@ -284,6 +292,16 @@ pub fn generate_auth() -> (u8, &'static str) {
 }
 
 /// Verifies that the client's response string matches the expected response hash.
+///
+/// # Examples
+///
+/// ```
+/// use raknet_rs::{generate_auth, check_auth};
+///
+/// let (index, challenge) = generate_auth();
+/// // In real scenario, receive response from client
+/// // check_auth(index, response_sent_by_client);
+/// ```
 ///
 /// # Arguments
 /// * `index` - The index of the challenge generated for this client.

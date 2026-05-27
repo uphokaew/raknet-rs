@@ -9,6 +9,15 @@
 /// Unicode Thai characters (`U+0E01` to `U+0E5B`) map to TIS-620 by:
 /// `byte = unicode_char_value - 0x0E00 + 0xA0`.
 /// Other characters default to `?` (0x3F).
+///
+/// # Examples
+///
+/// ```
+/// use raknet_rs::encode_tis620;
+///
+/// let encoded = encode_tis620("สวัสดี Rust");
+/// assert_eq!(encoded[0], 0xca); // "ส"
+/// ```
 pub fn encode_tis620(s: &str) -> Vec<u8> {
     let mut result = Vec::with_capacity(s.len());
     for c in s.chars() {
@@ -25,6 +34,15 @@ pub fn encode_tis620(s: &str) -> Vec<u8> {
 }
 
 /// Decodes a TIS-620 byte slice into a UTF-8 String.
+///
+/// # Examples
+///
+/// ```
+/// use raknet_rs::decode_tis620;
+///
+/// let decoded = decode_tis620(&[0xca, 0xc7, 0xd1, 0xca, 0xb4, 0xd5]);
+/// assert_eq!(decoded, "สวัสดี");
+/// ```
 pub fn decode_tis620(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len());
     for &b in bytes {
