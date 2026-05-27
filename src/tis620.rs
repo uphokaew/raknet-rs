@@ -24,7 +24,7 @@ pub fn encode_tis620(s: &str) -> Vec<u8> {
         let cp = c as u32;
         if cp <= 0x7F {
             result.push(cp as u8);
-        } else if cp >= 0x0E00 && cp <= 0x0E7F {
+        } else if (0x0E00..=0x0E7F).contains(&cp) {
             result.push((cp - 0x0E00 + 0xA0) as u8);
         } else {
             result.push(b'?');
@@ -48,7 +48,7 @@ pub fn decode_tis620(bytes: &[u8]) -> String {
     for &b in bytes {
         if b <= 0x7F {
             s.push(b as char);
-        } else if b >= 0xA0 && b <= 0xFE {
+        } else if (0xA0..=0xFE).contains(&b) {
             let cp = b as u32 - 0xA0 + 0x0E00;
             if let Some(c) = char::from_u32(cp) {
                 s.push(c);

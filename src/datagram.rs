@@ -126,7 +126,7 @@ impl InternalPacket {
         }
 
         let bit_length = bs.read_compressed::<u16>(true)?;
-        let num_bytes = ((bit_length + 7) / 8) as usize;
+        let num_bytes = bit_length.div_ceil(8) as usize;
         let payload = bs.read_aligned_bytes(num_bytes)?;
 
         Some(Self {
@@ -222,8 +222,10 @@ mod tests {
 
     #[test]
     fn test_datagram_serialization() {
-        let mut dg = Datagram::default();
-        dg.has_acks = true;
+        let mut dg = Datagram {
+            has_acks: true,
+            ..Default::default()
+        };
         dg.acks.ranges.push(RangeNode { min: 1, max: 2 });
         dg.packets.push(InternalPacket {
             message_number: 100,

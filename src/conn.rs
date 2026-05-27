@@ -156,17 +156,17 @@ impl ConnectionManager {
             .map(|until| now < until)
             .unwrap_or(false);
 
-        if !(is_localhost && self.limits.bypass_localhost) && !in_grace_period {
+        if !(in_grace_period || (is_localhost && self.limits.bypass_localhost)) {
             if self.incoming_connections.contains(&ip) {
                 return HandshakeResult::Rejected(RejectionReason::AlreadyRequesting);
             }
 
-            if self.limits.min_connection_time > Duration::from_millis(0) {
-                if let Some(&last_tick) = self.last_connection_ticks.get(&ip) {
-                    if now.duration_since(last_tick) < self.limits.min_connection_time {
-                        return HandshakeResult::Rejected(RejectionReason::RateLimited);
-                    }
-                }
+            if self.limits.min_connection_time > Duration::from_millis(0)
+                && self.last_connection_ticks.get(&ip).is_some_and(|&last_tick| {
+                    now.duration_since(last_tick) < self.limits.min_connection_time
+                })
+            {
+                return HandshakeResult::Rejected(RejectionReason::RateLimited);
             }
         }
 

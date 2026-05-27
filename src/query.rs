@@ -394,6 +394,9 @@ fn read_u32_str<T: AsRef<[u8]>>(reader: &mut Cursor<T>) -> Result<String, QueryE
 
 fn write_u8_str<W: Write>(writer: &mut W, val: &str) -> io::Result<()> {
     let encoded = crate::tis620::encode_tis620(val);
+    if encoded.len() > u8::MAX as usize {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "string length exceeds u8 limit"));
+    }
     writer.write_u8(encoded.len() as u8)?;
     writer.write_all(&encoded)?;
     Ok(())
@@ -401,6 +404,9 @@ fn write_u8_str<W: Write>(writer: &mut W, val: &str) -> io::Result<()> {
 
 fn write_u16_str<W: Write>(writer: &mut W, val: &str) -> io::Result<()> {
     let encoded = crate::tis620::encode_tis620(val);
+    if encoded.len() > u16::MAX as usize {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "string length exceeds u16 limit"));
+    }
     writer.write_u16::<LittleEndian>(encoded.len() as u16)?;
     writer.write_all(&encoded)?;
     Ok(())
@@ -408,6 +414,9 @@ fn write_u16_str<W: Write>(writer: &mut W, val: &str) -> io::Result<()> {
 
 fn write_u32_str<W: Write>(writer: &mut W, val: &str) -> io::Result<()> {
     let encoded = crate::tis620::encode_tis620(val);
+    if encoded.len() > u32::MAX as usize {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "string length exceeds u32 limit"));
+    }
     writer.write_u32::<LittleEndian>(encoded.len() as u32)?;
     writer.write_all(&encoded)?;
     Ok(())
@@ -578,5 +587,20 @@ mod tests {
         // Parsing this should fail cleanly returning an error instead of OOMing/panicking
         let parsed = QueryPacket::parse(&mal_packet, true);
         assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn test_serialize_overflow() {
+        // A string that exceeds u8::MAX (255) to trigger write_u8_str error
+        let long_name = "a".repeat(256);
+        let p = QueryPacket {
+            header: get_test_header('c'),
+            payload: QueryPayload::Players(vec![
+                QueryPlayer { name: long_name, score: 100 }
+            ]),
+        };
+
+        let result = p.serialize();
+        assert!(result.is_err());
     }
 }

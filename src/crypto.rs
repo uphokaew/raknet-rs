@@ -242,9 +242,9 @@ mod tests {
         let port = 7777;
         let port_mask = (port ^ 0xCC) as u8;
         
-        let b1 = DECRYPT_KEY_TABLE[0x12 as usize]; // index 1 (odd, no XOR)
+        let b1 = DECRYPT_KEY_TABLE[0x12]; // index 1 (odd, no XOR)
         let b2 = DECRYPT_KEY_TABLE[(0x34 ^ port_mask) as usize]; // index 2 (even, XORed)
-        let b3 = DECRYPT_KEY_TABLE[0x56 as usize]; // index 3 (odd, no XOR)
+        let b3 = DECRYPT_KEY_TABLE[0x56]; // index 3 (odd, no XOR)
 
         let correct_checksum = (b1 & 0xAA) ^ (b2 & 0xAA) ^ (b3 & 0xAA);
         invalid_packet[0] = correct_checksum;

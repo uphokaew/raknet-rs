@@ -80,16 +80,12 @@ impl BitStream {
 
     /// Returns the total number of bytes written to the stream (rounded up).
     pub fn len_bytes(&self) -> usize {
-        (self.write_offset_bits + 7) / 8
+        self.write_offset_bits.div_ceil(8)
     }
 
     /// Returns the number of bits that have not yet been read.
     pub fn unread_bits(&self) -> usize {
-        if self.write_offset_bits > self.read_offset_bits {
-            self.write_offset_bits - self.read_offset_bits
-        } else {
-            0
-        }
+        self.write_offset_bits.saturating_sub(self.read_offset_bits)
     }
 
     /// Resets the read and write offsets, clearing the internal buffer.
@@ -140,7 +136,7 @@ impl BitStream {
     ///   are read from the lowest bits (LSB-aligned) of each byte.
     pub fn write_bits(&mut self, input: &[u8], mut num_bits: usize, right_aligned: bool) {
         // Fast path: if byte aligned and writing multiple of 8 bits, do a direct copy!
-        if self.write_offset_bits % 8 == 0 && num_bits % 8 == 0 {
+        if self.write_offset_bits.is_multiple_of(8) && num_bits.is_multiple_of(8) {
             let len_bytes = num_bits / 8;
             self.data.extend_from_slice(&input[..len_bytes]);
             self.write_offset_bits += num_bits;
@@ -173,13 +169,13 @@ impl BitStream {
         if self.read_offset_bits + num_bits > self.write_offset_bits {
             return None;
         }
-        let num_bytes = (num_bits + 7) / 8;
+        let num_bytes = num_bits.div_ceil(8);
         if output.len() < num_bytes {
             return None;
         }
 
         // Fast path: if byte aligned and reading multiple of 8 bits, do a direct copy!
-        if self.read_offset_bits % 8 == 0 && num_bits % 8 == 0 {
+        if self.read_offset_bits.is_multiple_of(8) && num_bits.is_multiple_of(8) {
             let start_byte = self.read_offset_bits / 8;
             let len_bytes = num_bits / 8;
             output[..len_bytes].copy_from_slice(&self.data[start_byte..start_byte + len_bytes]);
@@ -212,7 +208,7 @@ impl BitStream {
     /// * `num_bits` - Number of bits to read.
     /// * `align_right` - If true, pads partial bytes on the left so the bits are right-aligned.
     pub fn read_bits(&mut self, num_bits: usize, align_right: bool) -> Option<Vec<u8>> {
-        let num_bytes = (num_bits + 7) / 8;
+        let num_bytes = num_bits.div_ceil(8);
         let mut output = vec![0u8; num_bytes];
         self.read_bits_into(&mut output, num_bits, align_right)?;
         Some(output)
@@ -229,10 +225,18 @@ impl BitStream {
     /// bs.write(&100u16);
     /// ```
     pub fn write<T: SafeBufCast>(&mut self, value: &T) {
+        let size = std::mem::size_of::<T>();
         let bytes = unsafe {
-            std::slice::from_raw_parts(value as *const T as *const u8, std::mem::size_of::<T>())
+            std::slice::from_raw_parts(value as *const T as *const u8, size)
         };
-        self.write_bits(bytes, bytes.len() * 8, false);
+        #[cfg(target_endian = "big")]
+        {
+            let mut temp = bytes.to_vec();
+            temp.reverse();
+            self.write_bits(&temp, size * 8, false);
+        }
+        #[cfg(not(target_endian = "big"))]
+        self.write_bits(bytes, size * 8, false);
     }
 
     /// Reads an uncompressed value of any type.
@@ -254,6 +258,8 @@ impl BitStream {
         unsafe {
             let dest = std::slice::from_raw_parts_mut(&mut val as *mut T as *mut u8, size);
             self.read_bits_into(dest, size * 8, false)?;
+            #[cfg(target_endian = "big")]
+            dest.reverse();
         }
         Some(val)
     }
@@ -280,6 +286,16 @@ impl BitStream {
     /// ```
     pub fn write_compressed<T: SafeBufCast>(&mut self, value: &T, unsigned: bool) {
         let size_bytes = std::mem::size_of::<T>();
+        #[cfg(target_endian = "big")]
+        let mut temp_bytes = unsafe {
+            std::slice::from_raw_parts(value as *const T as *const u8, size_bytes)
+        }.to_vec();
+        #[cfg(target_endian = "big")]
+        temp_bytes.reverse();
+
+        #[cfg(target_endian = "big")]
+        let bytes = &temp_bytes;
+        #[cfg(not(target_endian = "big"))]
         let bytes = unsafe {
             std::slice::from_raw_parts(value as *const T as *const u8, size_bytes)
         };
@@ -354,6 +370,8 @@ impl BitStream {
                 output[0..=(current_byte as usize)].copy_from_slice(&remaining);
                 let mut val = T::default();
                 unsafe {
+                    #[cfg(target_endian = "big")]
+                    output.reverse();
                     std::ptr::copy_nonoverlapping(output.as_ptr(), &mut val as *mut T as *mut u8, size_bytes);
                 }
                 return Some(val);
@@ -371,6 +389,8 @@ impl BitStream {
 
         let mut val = T::default();
         unsafe {
+            #[cfg(target_endian = "big")]
+            output.reverse();
             std::ptr::copy_nonoverlapping(output.as_ptr(), &mut val as *mut T as *mut u8, size_bytes);
         }
         Some(val)
@@ -378,7 +398,7 @@ impl BitStream {
 
     /// Aligns the write offset to the next byte boundary.
     pub fn align_write_to_byte_boundary(&mut self) {
-        if self.write_offset_bits % 8 != 0 {
+        if !self.write_offset_bits.is_multiple_of(8) {
             let bits_to_add = 8 - (self.write_offset_bits % 8);
             for _ in 0..bits_to_add {
                 self.write_bit(false);
@@ -388,7 +408,7 @@ impl BitStream {
 
     /// Aligns the read offset to the next byte boundary.
     pub fn align_read_to_byte_boundary(&mut self) {
-        if self.read_offset_bits % 8 != 0 {
+        if !self.read_offset_bits.is_multiple_of(8) {
             self.read_offset_bits += 8 - (self.read_offset_bits % 8);
         }
     }
