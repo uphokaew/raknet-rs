@@ -32,35 +32,96 @@ pub const DECRYPT_KEY_TABLE: [u8; 256] = [
 /// * `port` - The server port number that the packet was sent to.
 ///
 /// # Returns
-/// * `Some(Vec<u8>)` containing the decrypted packet payload (excluding checksum byte) if successful.
+/// Decrypts a legacy SA-MP client packet in-place.
+///
+/// Modifies the provided buffer in-place. The first byte of `data` is assumed to be the checksum.
+/// If decryption succeeds, the decrypted payload is shifted left to start at index 0, and the new
+/// length of the payload (excluding checksum) is returned.
+///
+/// # Arguments
+/// * `data` - The mutable packet byte slice.
+/// * `port` - The server port number.
+///
+/// # Returns
+/// * `Some(usize)` containing the size of the decrypted payload if successful.
 /// * `None` if the input is empty or the checksum verification fails.
-pub fn decrypt(src: &[u8], port: u16) -> Option<Vec<u8>> {
-    if src.is_empty() {
+pub fn decrypt_in_place(data: &mut [u8], port: u16) -> Option<usize> {
+    if data.is_empty() {
         return None;
     }
 
-    let expected_checksum = src[0];
-    let len = src.len();
+    let expected_checksum = data[0];
+    let len = data.len();
     let port_mask = (port ^ 0xCC) as u8;
-    let mut decrypted = vec![0u8; len - 1];
     let mut checksum = 0u8;
 
     for i in 1..len {
-        let mut cur = src[i];
+        let mut cur = data[i];
         // Alternate the port mask XOR operation every even index
         if (i & 1) == 0 {
             cur ^= port_mask;
         }
         cur = DECRYPT_KEY_TABLE[cur as usize];
         checksum ^= cur & 0xAA;
-        decrypted[i - 1] = cur;
+        data[i - 1] = cur;
     }
 
     if expected_checksum == checksum {
-        Some(decrypted)
+        Some(len - 1)
     } else {
         None
     }
+}
+
+/// Decrypts a legacy SA-MP client packet using the specified server port.
+///
+/// Decryption validates the checksum embedded in the first byte of `src`.
+///
+/// # Arguments
+/// * `src` - The raw packet byte slice received from the client.
+/// * `port` - The server port number that the packet was sent to.
+///
+/// # Returns
+/// * `Some(Vec<u8>)` containing the decrypted packet payload (excluding checksum byte) if successful.
+/// * `None` if the input is empty or the checksum verification fails.
+pub fn decrypt(src: &[u8], port: u16) -> Option<Vec<u8>> {
+    if src.is_empty() {
+        return None;
+    }
+    let mut buf = src.to_vec();
+    let len = decrypt_in_place(&mut buf, port)?;
+    buf.truncate(len);
+    Some(buf)
+}
+
+/// Encrypts an outgoing packet payload into a pre-allocated destination buffer.
+///
+/// The destination buffer `dest` must have a length of exactly `src.len() + 1`.
+///
+/// # Arguments
+/// * `src` - The raw payload byte slice.
+/// * `dest` - The mutable destination slice to write the checksum and ciphertext.
+/// * `key` - The player-specific 32-bit encryption key.
+///
+/// # Returns
+/// * `Ok(())` if successful, or `Err` if the destination buffer size is incorrect.
+pub fn encrypt_into(src: &[u8], dest: &mut [u8], key: u32) -> Result<(), &'static str> {
+    if dest.len() != src.len() + 1 {
+        return Err("destination buffer size must be exactly src.len() + 1");
+    }
+
+    let key_bytes = key.to_le_bytes();
+    let len = src.len();
+    let mut checksum = 0u8;
+
+    for i in 0..len {
+        let cur = src[i] ^ key_bytes[i % 4];
+        checksum ^= src[i] & 0xAA;
+        dest[i + 1] = cur;
+    }
+
+    dest[0] = checksum;
+    Ok(())
 }
 
 /// Encrypts an outgoing packet payload using a player-specific 32-bit key.
@@ -76,18 +137,8 @@ pub fn decrypt(src: &[u8], port: u16) -> Option<Vec<u8>> {
 /// * Byte 0: The computed checksum of the raw payload.
 /// * Bytes 1..N: The encrypted ciphertext payload.
 pub fn encrypt(src: &[u8], key: u32) -> Vec<u8> {
-    let key_bytes = key.to_le_bytes();
-    let len = src.len();
-    let mut encrypted = vec![0u8; len + 1];
-    let mut checksum = 0u8;
-
-    for i in 0..len {
-        let cur = src[i] ^ key_bytes[i % 4];
-        checksum ^= src[i] & 0xAA;
-        encrypted[i + 1] = cur;
-    }
-
-    encrypted[0] = checksum;
+    let mut encrypted = vec![0u8; src.len() + 1];
+    encrypt_into(src, &mut encrypted, key).unwrap();
     encrypted
 }
 
@@ -166,5 +217,43 @@ mod tests {
 
         let res = decrypt(&invalid_packet, port).expect("Should succeed now");
         assert_eq!(res, vec![b1, b2, b3]);
+    }
+
+    #[test]
+    fn test_inplace_crypto() {
+        let original_data = b"Testing in-place crypto APIs";
+        let key = 0xAA55BB66;
+        let port = 7777;
+
+        // Test encrypt_into
+        let mut dest = vec![0u8; original_data.len() + 1];
+        encrypt_into(original_data, &mut dest, key).unwrap();
+
+        // Verify standard encryption output matches encrypt_into
+        let expected = encrypt(original_data, key);
+        assert_eq!(dest, expected);
+
+        // Simulate client-side encryption and then server decrypt_in_place
+        // We will construct encrypted client data using client substitution
+        let port_mask = (port ^ 0xCC) as u8;
+        let mut client_encrypted = vec![0u8; original_data.len() + 1];
+        let mut checksum = 0u8;
+        for (i, &b) in original_data.iter().enumerate() {
+            checksum ^= b & 0xAA;
+            let table_index = DECRYPT_KEY_TABLE.iter().position(|&x| x == b).unwrap() as u8;
+            let mut encrypted_byte = table_index;
+            let byte_pos = i + 1;
+            if (byte_pos & 1) == 0 {
+                encrypted_byte ^= port_mask;
+            }
+            client_encrypted[byte_pos] = encrypted_byte;
+        }
+        client_encrypted[0] = checksum;
+
+        // Perform decrypt_in_place
+        let mut decrypt_buf = client_encrypted.clone();
+        let payload_len = decrypt_in_place(&mut decrypt_buf, port).unwrap();
+        assert_eq!(payload_len, original_data.len());
+        assert_eq!(&decrypt_buf[..payload_len], original_data);
     }
 }

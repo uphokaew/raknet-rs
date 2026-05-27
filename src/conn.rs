@@ -155,8 +155,18 @@ impl ConnectionManager {
             }
         }
 
-        // Update the last connection request tick
-        self.last_connection_ticks.insert(ip, now);
+        if self.limits.min_connection_time > Duration::from_millis(0) {
+            // Update the last connection request tick
+            self.last_connection_ticks.insert(ip, now);
+
+            // Clean up obsolete entries if the map gets too large
+            if self.last_connection_ticks.len() > 1000 {
+                let min_time = self.limits.min_connection_time;
+                self.last_connection_ticks.retain(|_, &mut last_tick| {
+                    now.duration_since(last_tick) < min_time
+                });
+            }
+        }
 
         // 3. Verify connection cookie.
         // The packet payload from client: Byte 0 (Packet ID), Bytes 1-2 (XORed cookie value).
@@ -268,5 +278,33 @@ mod tests {
         // Third attempt - allowed again
         let res3 = manager.handle_connection_request(client_ip, &[11], || 0);
         assert!(matches!(res3, HandshakeResult::SendCookie(_)));
+    }
+
+    #[test]
+    fn test_rate_limits_eviction() {
+        let jar = CookieJar::new_seeded();
+        let mut manager = ConnectionManager::new(jar, 0x000104);
+        manager.set_limits(ConnectionLimits {
+            min_connection_time: Duration::from_millis(100),
+            grace_period_until: None,
+            bypass_localhost: false,
+        });
+
+        // Insert 1001 connections from different IPs
+        for i in 0..1001 {
+            let ip = Ipv4Addr::new(10, 0, (i / 256) as u8, (i % 256) as u8);
+            manager.handle_connection_request(ip, &[11], || 0);
+        }
+
+        // Wait for connection ticks to become obsolete
+        std::thread::sleep(Duration::from_millis(110));
+
+        // Insert one more to trigger eviction of all previous ones
+        let ip = Ipv4Addr::new(192, 168, 1, 1);
+        manager.handle_connection_request(ip, &[11], || 0);
+
+        // After the sleep and one more insert, all the previous 1001 entries are obsolete and should be evicted,
+        // leaving only the 1 new entry.
+        assert_eq!(manager.last_connection_ticks.len(), 1);
     }
 }

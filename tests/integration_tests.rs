@@ -190,8 +190,8 @@ fn test_integration_safebufcast_primitives() {
     let val_i128: i128 = -170000000000000000000000000000000000000;
     let val_isize: isize = -654321;
 
-    let val_f32: f32 = 3.14159;
-    let val_f64: f64 = 2.718281828459;
+    let val_f32: f32 = std::f32::consts::PI;
+    let val_f64: f64 = std::f64::consts::E;
     let val_bool: bool = true;
     let val_char: char = '🇹';
 

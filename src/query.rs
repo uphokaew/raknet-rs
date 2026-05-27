@@ -198,7 +198,10 @@ impl QueryPacket {
             'c' => {
                 if is_response {
                     let count = cursor.read_u16::<LittleEndian>()?;
-                    let mut players = Vec::with_capacity(count as usize);
+                    let remaining = cursor.get_ref().as_ref().len().saturating_sub(cursor.position() as usize);
+                    let max_possible = remaining / 5; // Minimum size of player entry is 5 bytes
+                    let capacity = std::cmp::min(count as usize, max_possible);
+                    let mut players = Vec::with_capacity(capacity);
                     for _ in 0..count {
                         let name = read_u8_str(&mut cursor)?;
                         let score = cursor.read_i32::<LittleEndian>()?;
@@ -212,7 +215,10 @@ impl QueryPacket {
             'r' => {
                 if is_response {
                     let count = cursor.read_u16::<LittleEndian>()?;
-                    let mut rules = Vec::with_capacity(count as usize);
+                    let remaining = cursor.get_ref().as_ref().len().saturating_sub(cursor.position() as usize);
+                    let max_possible = remaining / 2; // Minimum size of rule entry is 2 bytes
+                    let capacity = std::cmp::min(count as usize, max_possible);
+                    let mut rules = Vec::with_capacity(capacity);
                     for _ in 0..count {
                         let name = read_u8_str(&mut cursor)?;
                         let value = read_u8_str(&mut cursor)?;
@@ -329,22 +335,34 @@ impl QueryPacket {
 
 // Helpers for reading string layouts
 
-fn read_u8_str<R: Read>(reader: &mut R) -> Result<String, QueryError> {
+fn read_u8_str<T: AsRef<[u8]>>(reader: &mut Cursor<T>) -> Result<String, QueryError> {
     let len = reader.read_u8()? as usize;
+    let remaining = reader.get_ref().as_ref().len().saturating_sub(reader.position() as usize);
+    if len > remaining {
+        return Err(QueryError::Io(io::Error::new(io::ErrorKind::UnexpectedEof, "string length exceeds remaining bytes")));
+    }
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf)?;
     Ok(crate::tis620::decode_tis620(&buf))
 }
 
-fn read_u16_str<R: Read>(reader: &mut R) -> Result<String, QueryError> {
+fn read_u16_str<T: AsRef<[u8]>>(reader: &mut Cursor<T>) -> Result<String, QueryError> {
     let len = reader.read_u16::<LittleEndian>()? as usize;
+    let remaining = reader.get_ref().as_ref().len().saturating_sub(reader.position() as usize);
+    if len > remaining {
+        return Err(QueryError::Io(io::Error::new(io::ErrorKind::UnexpectedEof, "string length exceeds remaining bytes")));
+    }
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf)?;
     Ok(crate::tis620::decode_tis620(&buf))
 }
 
-fn read_u32_str<R: Read>(reader: &mut R) -> Result<String, QueryError> {
+fn read_u32_str<T: AsRef<[u8]>>(reader: &mut Cursor<T>) -> Result<String, QueryError> {
     let len = reader.read_u32::<LittleEndian>()? as usize;
+    let remaining = reader.get_ref().as_ref().len().saturating_sub(reader.position() as usize);
+    if len > remaining {
+        return Err(QueryError::Io(io::Error::new(io::ErrorKind::UnexpectedEof, "string length exceeds remaining bytes")));
+    }
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf)?;
     Ok(crate::tis620::decode_tis620(&buf))
@@ -515,5 +533,28 @@ mod tests {
 
         // Parsing with standard SAMP signature must fail
         assert!(QueryPacket::parse_with_signature(&data, true, b"SAMP").is_err());
+    }
+
+    #[test]
+    fn test_malicious_packets_bounds() {
+        // Construct a query packet that pretends to have a huge hostname length (e.g. 4GB)
+        let mut mal_packet = Vec::new();
+        // SAMP header
+        mal_packet.extend_from_slice(b"SAMP");
+        mal_packet.extend_from_slice(&[127, 0, 0, 1]); // IP
+        mal_packet.extend_from_slice(&7777u16.to_le_bytes()); // Port
+        mal_packet.push(b'i'); // opcode 'i' (Info)
+        
+        // Info response payload
+        mal_packet.push(1); // passworded
+        mal_packet.extend_from_slice(&10u16.to_le_bytes()); // players
+        mal_packet.extend_from_slice(&100u16.to_le_bytes()); // max players
+        
+        // Huge hostname string length (e.g. 4,000,000,000 bytes)
+        mal_packet.extend_from_slice(&4_000_000_000u32.to_le_bytes());
+        
+        // Parsing this should fail cleanly returning an error instead of OOMing/panicking
+        let parsed = QueryPacket::parse(&mal_packet, true);
+        assert!(parsed.is_err());
     }
 }

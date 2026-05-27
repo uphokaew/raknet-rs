@@ -35,7 +35,9 @@ impl RangeList {
     /// Deserializes a RangeList from the BitStream.
     pub fn deserialize(bs: &mut BitStream) -> Option<Self> {
         let count = bs.read_compressed::<u16>(true)?;
-        let mut ranges = Vec::with_capacity(count as usize);
+        let max_possible = bs.unread_bits() / 17; // Each range is at least 17 bits (1 bit single + 16 bits min)
+        let capacity = std::cmp::min(count as usize, max_possible);
+        let mut ranges = Vec::with_capacity(capacity);
         for _ in 0..count {
             let single = bs.read_bit()?;
             let min = bs.read::<u16>()?;

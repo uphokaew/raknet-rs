@@ -18,7 +18,7 @@ pub mod tis620;
 pub mod rpc;
 
 // Re-export common items for easier usage
-pub use crypto::{decrypt, encrypt, DECRYPT_KEY_TABLE};
+pub use crypto::{decrypt, encrypt, decrypt_in_place, encrypt_into, DECRYPT_KEY_TABLE};
 pub use auth::{generate_auth, check_auth, AUTH_TABLE, AuthEntry};
 pub use cookie::CookieJar;
 pub use query::{QueryPacket, QueryPayload, QueryHeader, QueryPlayer, QueryError, BASE_QUERY_SIZE};

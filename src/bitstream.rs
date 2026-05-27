@@ -130,6 +130,14 @@ impl BitStream {
     /// * `right_aligned` - If `num_bits < 8` and `right_aligned` is true, the source bits
     ///   are read from the lowest bits (LSB-aligned) of each byte.
     pub fn write_bits(&mut self, input: &[u8], mut num_bits: usize, right_aligned: bool) {
+        // Fast path: if byte aligned and writing multiple of 8 bits, do a direct copy!
+        if self.write_offset_bits % 8 == 0 && num_bits % 8 == 0 {
+            let len_bytes = num_bits / 8;
+            self.data.extend_from_slice(&input[..len_bytes]);
+            self.write_offset_bits += num_bits;
+            return;
+        }
+
         let mut offset = 0;
         while num_bits > 0 {
             let mut data_byte = input[offset];
@@ -146,17 +154,30 @@ impl BitStream {
         }
     }
 
-    /// Reads a block of bits from the stream.
+    /// Reads a block of bits from the stream directly into the provided destination buffer.
     ///
     /// # Arguments
+    /// * `output` - The destination byte slice.
     /// * `num_bits` - Number of bits to read.
     /// * `align_right` - If true, pads partial bytes on the left so the bits are right-aligned.
-    pub fn read_bits(&mut self, mut num_bits: usize, align_right: bool) -> Option<Vec<u8>> {
+    pub fn read_bits_into(&mut self, output: &mut [u8], mut num_bits: usize, align_right: bool) -> Option<()> {
         if self.read_offset_bits + num_bits > self.write_offset_bits {
             return None;
         }
         let num_bytes = (num_bits + 7) / 8;
-        let mut output = vec![0u8; num_bytes];
+        if output.len() < num_bytes {
+            return None;
+        }
+
+        // Fast path: if byte aligned and reading multiple of 8 bits, do a direct copy!
+        if self.read_offset_bits % 8 == 0 && num_bits % 8 == 0 {
+            let start_byte = self.read_offset_bits / 8;
+            let len_bytes = num_bits / 8;
+            output[..len_bytes].copy_from_slice(&self.data[start_byte..start_byte + len_bytes]);
+            self.read_offset_bits += num_bits;
+            return Some(());
+        }
+
         let mut offset = 0;
         while num_bits > 0 {
             let bits_to_read = std::cmp::min(num_bits, 8);
@@ -173,6 +194,18 @@ impl BitStream {
             num_bits -= bits_to_read;
             offset += 1;
         }
+        Some(())
+    }
+
+    /// Reads a block of bits from the stream.
+    ///
+    /// # Arguments
+    /// * `num_bits` - Number of bits to read.
+    /// * `align_right` - If true, pads partial bytes on the left so the bits are right-aligned.
+    pub fn read_bits(&mut self, num_bits: usize, align_right: bool) -> Option<Vec<u8>> {
+        let num_bytes = (num_bits + 7) / 8;
+        let mut output = vec![0u8; num_bytes];
+        self.read_bits_into(&mut output, num_bits, align_right)?;
         Some(output)
     }
 
@@ -187,11 +220,10 @@ impl BitStream {
     /// Reads an uncompressed value of any type.
     pub fn read<T: SafeBufCast>(&mut self) -> Option<T> {
         let size = std::mem::size_of::<T>();
-        let bytes = self.read_bits(size * 8, false)?;
         let mut val = T::default();
         unsafe {
-            let dest = &mut val as *mut T as *mut u8;
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), dest, size);
+            let dest = std::slice::from_raw_parts_mut(&mut val as *mut T as *mut u8, size);
+            self.read_bits_into(dest, size * 8, false)?;
         }
         Some(val)
     }
